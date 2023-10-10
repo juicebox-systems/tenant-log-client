@@ -2,6 +2,7 @@
 
 This is a test client for the tenant log API exposed by the realms.
 
+```
 Usage of ./tenant-event-log:
   -ack
     	send ack for received events
@@ -13,6 +14,7 @@ Usage of ./tenant-event-log:
     	URL to the tenant event service (default "http://localhost:8080")
   -watch
     	continue to poll and watch for events
+```
 
 If `-watch` is specified, then the client will continue to poll for events
 otherwise only a single request is made.
