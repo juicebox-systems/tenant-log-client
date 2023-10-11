@@ -17,27 +17,41 @@ func main() {
 	token := flag.String("token", "", "Auth token")
 	ack := flag.Bool("ack", false, "send ack for received events")
 	watch := flag.Bool("watch", false, "continue to poll and watch for events")
+	threads := flag.Int("threads", 1, "number of poller threads")
 
 	flag.Parse()
 	fmt.Printf("Id, When, Event, NumGuesses,GuessCount, UserId, Ack\n")
-	ackIds := pollOnce(*endpoint, *token, *pageSize, nil)
-	if *watch {
-		for {
-			if !*ack {
-				ackIds = ackIds[:0]
-			}
-			ackIds = pollOnce(*endpoint, *token, *pageSize, ackIds)
-			if len(ackIds) == 0 {
-				time.Sleep(time.Second)
-			}
-		}
+	c := &http.Client{
+		Transport: &http.Transport{
+			MaxIdleConns:        *threads,
+			MaxIdleConnsPerHost: *threads,
+			MaxConnsPerHost:     *threads,
+		},
 	}
+	if *watch {
+		for i := 0; i < *threads; i++ {
+			go func() {
+				ackIds := []string{}
+				for {
+					if !*ack {
+						ackIds = ackIds[:0]
+					}
+					ackIds = pollOnce(c, *endpoint, *token, *pageSize, ackIds)
+					if len(ackIds) == 0 {
+						time.Sleep(time.Second)
+					}
+				}
+			}()
+		}
+		select {}
+	}
+	ackIds := pollOnce(c, *endpoint, *token, *pageSize, nil)
 	if *ack {
-		sendAcks(*endpoint, *token, ackIds)
+		sendAcks(c, *endpoint, *token, ackIds)
 	}
 }
 
-func pollOnce(endpoint string, token string, pageSize int, ack []string) []string {
+func pollOnce(c *http.Client, endpoint string, token string, pageSize int, ack []string) []string {
 	r := Req{
 		Ack:      ack,
 		PageSize: pageSize,
@@ -51,7 +65,7 @@ func pollOnce(endpoint string, token string, pageSize int, ack []string) []strin
 		log.Fatalf("failed to construct http request: %v", err)
 	}
 	http_req.Header.Add("Authorization", "Bearer "+token)
-	res, err := http.DefaultClient.Do(http_req)
+	res, err := c.Do(http_req)
 	if err != nil {
 		log.Fatalf("failed to send request: %v", err)
 	}
@@ -74,7 +88,7 @@ func pollOnce(endpoint string, token string, pageSize int, ack []string) []strin
 	return ackIds
 }
 
-func sendAcks(endpoint string, token string, ids []string) {
+func sendAcks(c *http.Client, endpoint string, token string, ids []string) {
 	r := Req{Ack: ids, PageSize: 0}
 	body, err := json.Marshal(&r)
 	if err != nil {
@@ -85,7 +99,7 @@ func sendAcks(endpoint string, token string, ids []string) {
 		log.Fatalf("failed to construct http request: %v", err)
 	}
 	http_req.Header.Add("Authorization", "Bearer "+token)
-	res, err := http.DefaultClient.Do(http_req)
+	res, err := c.Do(http_req)
 	if err != nil {
 		log.Fatalf("failed to send request: %v", err)
 	}
